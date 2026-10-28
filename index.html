@@ -55,7 +55,7 @@ button { font: inherit; color: inherit; }
 @media (max-width: 1000px) { .side { max-height: none; position: static; } }
 .tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--line); overflow-x: auto; background: var(--panel); border-radius: 10px 10px 0 0; }
 @media (max-width: 1000px) { .tabs { position: sticky; top: 0; z-index: 5; } }
-.tabs button { flex: 1 0 auto; background: none; border: 0; padding: 10px 7px 8px; cursor: pointer; color: var(--muted); font: 700 19px var(--display); border-bottom: 3px solid transparent; position: relative; }
+.tabs button { flex: 1 0 auto; background: none; border: 0; padding: 10px 6px 8px; cursor: pointer; color: var(--muted); font: 700 17px var(--display); border-bottom: 3px solid transparent; position: relative; }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--wyrm); }
 .tabs button[data-tab="hero"] { padding-right: 24px; }
 .tabs .dot { position: absolute; top: 7px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--wyrm); color: var(--bg); font: 600 11px/16px var(--sans); }
@@ -113,6 +113,15 @@ button { font: inherit; color: inherit; }
 .err { color: var(--blood); font-size: 14px; }
 .raidbox { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 10px 0; background: var(--panel2); }
 .raidbox strong { font: 700 24px var(--display); }
+#tavcv { display: block; width: 100%; height: 250px; border-radius: 8px; background: #2A1C14; margin: 8px 0; }
+.chat { list-style: none; padding: 0; margin: 6px 0; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.chat li { background: var(--panel2); border-radius: 8px; padding: 6px 10px; max-width: 88%; font-size: 15px; overflow-wrap: anywhere; }
+.chat li.me { align-self: flex-end; background: color-mix(in srgb, var(--wyrm) 22%, var(--panel2)); }
+.chat li.sys { align-self: center; background: none; color: var(--coin); font-size: 13px; }
+.chat li b { font-size: 13px; } .chat li time { font-size: 11px; color: var(--muted); margin-left: 6px; }
+.fellow { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0; }
+.fellow div { display: flex; align-items: center; gap: 6px; background: var(--panel2); border-radius: 8px; padding: 2px 10px 2px 2px; font-size: 14px; }
+.fellow canvas { width: 34px; height: 40px; }
 #holdcv { display: block; width: 100%; height: 190px; border-radius: 8px; background: var(--well); margin: 8px 0; }
 .bld { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 9px 0; border-bottom: 1px solid var(--line); align-items: center; }
 .bld .nm { font-weight: 600; } .bld .ds { grid-column: 1; font-size: 13px; color: var(--muted); }
@@ -179,7 +188,8 @@ button { font: inherit; color: inherit; }
   <aside class="side">
     <nav class="tabs" role="tablist" id="tabs">
       <button role="tab" data-tab="hero" aria-selected="true">Hero</button>
-      <button role="tab" data-tab="merchant">Merchant</button>
+      <button role="tab" data-tab="merchant">Shop</button>
+      <button role="tab" data-tab="tavern">Tavern</button>
       <button role="tab" data-tab="raid">Raid</button>
       <button role="tab" data-tab="arena">Arena</button>
       <button role="tab" data-tab="guild">Guild</button>
@@ -200,6 +210,11 @@ const SIM = (() => {
   const MIN = 60000, HOUR = 3600000, DAY = 86400000, WEEK = 7 * DAY;
   const WEEK0 = 345600000; // Monday 1970-01-05 UTC
   const TRAVEL = 25000, REST = 150000, BLOCK = 6 * HOUR;
+  // Rules version 2 (shorter roads, smarter retreats, road events, fellowship) applies from this moment on.
+  // Everything before it replays exactly as it did under version 1.
+  const V2 = Date.UTC(2026, 9, 28);
+  const TRAVEL2 = 10000, EVENT_DUR = 7000, BOSS_CD = 3 * HOUR, CAMP_CD = 45 * MIN;
+  const V2XP = 34, V2GOLD = 34, ROADP = 0.03, PARTYK = 88, FOEHP2 = 170, V2LOOT = 15, ELITE = 0.012;
   const RAID_HOUR = 19; // raid every day at 19:00 UTC
 
   // arena-only adjustments (adventure and raids are unaffected)
@@ -477,8 +492,8 @@ const SIM = (() => {
       if (d.dodge && r() * 100 < d.dodge) { if (out) out.push([di, 0, 2]); return; }
       let base = a.atk * (0.85 + 0.3 * r()) * mul * (100 + (a.s === 0 ? aura : 0)) / 100;
       if (war && a.war) base = base * (100 + a.war) / 100;
-      if (a.k === "hero") {
-        if (d.k === "boss") base = base * (100 + (a.boss || 0)) / 100; else if (d.k !== "hero" && d.k !== "wolf") base = base * (100 + (a.norm || 0)) / 100;
+      if (a.k === "hero" || a.k === "ally") {
+        if (d.k === "boss") base = base * (100 + (a.boss || 0)) / 100; else if (d.k !== "hero" && d.k !== "wolf" && d.k !== "ally") base = base * (100 + (a.norm || 0)) / 100;
         if (a.exe && d.hp * 4 < d.max) base *= 1.5;
         if (a.bers) base *= 1 + 0.4 * (1 - a.hp / a.max);
       }
@@ -519,7 +534,7 @@ const SIM = (() => {
       if (u.st) { u.st = 0; kind = "z"; }
       else {
         const foe = 1 - u.s;
-        if (u.k === "hero") {
+        if (u.k === "hero" || u.k === "ally") {
           const all = u.aoe || (u.whirl && u.n % 4 === 0) || (u.volley && u.n === 1);
           if (all) { kind = "o"; const focus = opts.pvp && u.aoe && left[foe] <= 2 ? FOCUS : 1; for (let i = 0; i < N; i++) if (U[i].s === foe && U[i].hp > 0) strike(ui, i, u.aoe && !(u.volley && u.n === 1) ? focus : 0.7, out); }
           else {
@@ -543,8 +558,9 @@ const SIM = (() => {
     }
     return { win, dur: t + 1500, log, left: left.slice(), U };
   }
-  function soloUnits(c, foes) {
+  function soloUnits(c, foes, allies) {
     const U = [heroUnit(c, { k: "hero" })];
+    (allies || []).forEach((a, i) => U.push(heroUnit(a, { k: "ally", ei: i })));
     if (c.wolf) U.push({ s: 0, k: "wolf", hp: Math.floor(c.hp * 0.4), max: Math.floor(c.hp * 0.4), atk: Math.floor(c.atk * 0.35), def: Math.floor(c.def / 2), cd: 1600, crit: 5, critd: 50, dodge: 10, block: 0, blockr: 50, ls: 0, thorns: 0, regen: 0, used: {} });
     for (const f of foes) U.push(foeUnit(f));
     return U;
@@ -655,6 +671,14 @@ const SIM = (() => {
       S.gold += g; S.glory = (S.glory || 0) + won;
       note(S, S.t, "arena", "Arena: " + S.hero.name + " won " + won + " of " + fought + " bouts and earned " + g + " gold.");
     }
+    else if (d.k === "party") {
+      if (!S.party || d.d >= S.party.d) S.party = { d: d.d, allies: (d.allies || []).slice(0, 3) };
+    } else if (d.k === "round") {
+      S.cheer = Math.max(S.cheer || 0, d.at + 2 * HOUR);
+      note(S, S.t, "tavern", (d.by || "A guildmate") + " buys a round at the tavern. More experience and gold for two hours.");
+    } else if (d.k === "buyround") {
+      S.gold -= Math.min(S.gold, Math.max(0, d.cost | 0));
+    }
     else if (d.k === "go") { if (d.r >= 0 && d.r <= S.maxRegion && d.r !== S.region) { S.region = d.r; S.node = 0; note(S, S.t, "travel", S.hero.name + " travels to " + regionName(d.r) + "."); } }
     else if (d.k === "raid") {
       if (S.raids.includes(d.d)) return;
@@ -672,7 +696,7 @@ const SIM = (() => {
     }
   }
 
-  function encounter(S, seed) {
+  function encounter(S, seed, extra) {
     const r = rng(seed), n = S.node, reg = S.region, lvl = foeLevel(reg, n), ev = eventAt(S.t);
     const scale = ev && ev.foe || 100, foes = [];
     const mk = (a, l) => {
@@ -690,10 +714,110 @@ const SIM = (() => {
         f.name = regionDef(reg).foes[ai]; f.ai = ai + 1; foes.push(f);
       }
     }
+    if (extra) {
+      if (n === NODES - 1) { const b = foes[0]; b.hp = Math.floor(b.hp * (100 + PARTYK * 1.6 * extra) / 100); }
+      for (let i = 0; i < extra; i++) {
+        const ai = Math.floor(r() * 3), f = mk(ARCH[ai], lvl);
+        f.hp = Math.floor(f.hp * PARTYK / 100 * 2); f.name = regionDef(reg).foes[ai]; f.ai = ai + 1; foes.push(f);
+      }
+    }
     return foes;
   }
 
+  // ---------- fellowship ----------
+  // Guildmates' heroes (as signed up for last night's raid) travel with you, scaled to your level.
+  function activeAllies(S) {
+    if (!S.party || S.t >= (S.party.d + 2) * DAY) return [];
+    const k = G[lv(S.lvl)];
+    return S.party.allies.map(a => { const f = k / G[lv(a.lvl)]; return Object.assign({}, a.c, { hp: Math.max(1, Math.floor(a.c.hp * f)), atk: Math.max(1, Math.floor(a.c.atk * f)), def: Math.floor(a.c.def * f), wolf: 0, banner: 0 }); });
+  }
+  const cheerOn = S => S.cheer && S.t < S.cheer;
+
+  function startFight2(S) {
+    const ev = eventAt(S.t), b = Math.floor(S.t / BLOCK);
+    if (!S.shop || S.shop.b !== b) S.shop = shopFor(S);
+    for (const p of S.pend.slice()) if (S.t - p.at >= DAY) choose(S, p.l, 0, S.t, true);
+    const seed = hash(S.seed, "f", S.fights), er = rng(seed ^ 0x7ab1), m = mods(S);
+    const lvl = foeLevel(S.region, S.node), boost = (100 + (cheerOn(S) ? 15 : 0));
+    S.ls = S.t;
+    // something happens on the road instead of a fight
+    if (S.node !== NODES - 1 && er() < ROADP) {
+      const x = er(); let e;
+      if (x < 0.45) e = { k: "chest", gold: Math.floor(GOLD[lv(lvl)] * 14 * V2GOLD / 100 * (100 + (m.gold || 0)) / 100 * boost / 100) };
+      else if (x < 0.92) e = { k: "shrine", xp: Math.floor(XPF[lv(lvl)] * 14 * V2XP / 100 * (100 + (m.xp || 0)) / 100 * boost / 100) };
+      else {
+        const sl = ["w", "a", "c"][Math.floor(er() * 3)], t = sl === "w" ? (er() < 0.5 && S.eq.w ? S.eq.w.t : WTYPES[Math.floor(er() * WTYPES.length)]) : sl === "a" ? ATYPES[Math.floor(er() * ATYPES.length)] : "charm";
+        e = { k: "trader", item: makeItem(er, sl, t, lvl + 2, er() < 0.35 ? 2 : 1, "") };
+      }
+      S.cur = { id: S.fights, seed, start: S.t, end: S.t + EVENT_DUR, v2: 1, event: e, win: true, r: S.region, n: S.node, foes: [], xp: e.xp || 0, gold: e.gold || 0, drop: e.item || null };
+      S.fights++; return;
+    }
+    const allies = activeAllies(S);
+    const foes = encounter(S, seed, allies.length);
+    for (const f of foes) if (f.k !== "boss") f.hp = Math.floor(f.hp * FOEHP2 / 100);
+    let elite = false;
+    if (S.node !== NODES - 1 && er() < ELITE) {
+      elite = true; const f = foes[0];
+      f.elite = 1; f.name = "Dread " + f.name.toLowerCase(); f.hp = Math.floor(f.hp * 3); f.atk = Math.floor(f.atk * 1.4);
+    }
+    const c = combat(S);
+    const res = fight(soloUnits(c, foes, allies), seed ^ 0x9e37, false, 100000);
+    let xp = 0, gold = 0;
+    if (res.win) for (const f of foes) { const mul = f.k === "boss" ? 8 : f.elite ? 5 : 1; xp += XPF[lv(f.lvl)] * mul; gold += GOLD[lv(f.lvl)] * (f.k === "boss" ? 10 : f.elite ? 6 : 1); }
+    else for (const f of foes) xp += XPF[lv(f.lvl)] / 4;
+    xp = Math.floor(xp * V2XP / 100); gold = Math.floor(gold * V2GOLD / 100);
+    if (ev) { xp = Math.floor(xp * ev.xp / 100); gold = Math.floor(gold * ev.gold / 100); }
+    xp = Math.floor(xp * (100 + (m.xp || 0)) / 100 * boost / 100); gold = Math.floor(gold * (100 + (m.gold || 0)) / 100 * boost / 100);
+    let drop = null;
+    if (res.win) {
+      const lr = rng(seed ^ 0x51ed), boss = S.node === NODES - 1;
+      if (boss || (elite && lr() < 0.3) || lr() * 100000 < 8 * V2LOOT * (ev && ev.loot || 1)) {
+        const s = ["w", "a", "c"][Math.floor(lr() * 3)];
+        const t = s === "w" ? WTYPES[Math.floor(lr() * WTYPES.length)] : s === "a" ? ATYPES[Math.floor(lr() * ATYPES.length)] : "charm";
+        const x = lr() * 100, rar = boss ? (x < 20 ? 2 : 1) : elite ? (x < 15 ? 3 : 2) : (x < 4 ? 3 : x < 20 ? 2 : x < 60 ? 1 : 0);
+        drop = makeItem(lr, s, t, foes[0].lvl + (boss ? 2 : 0), rar, "");
+      }
+    }
+    S.cur = { id: S.fights, seed, start: S.t, end: S.t + res.dur, v2: 1, win: res.win, r: S.region, n: S.node, foes, allies: allies.length, elite, xp, gold, drop, ev: ev ? ev.id : null };
+    S.fights++;
+  }
+  function finishFight2(S) {
+    const c = S.cur; S.cur = null;
+    S.gold += c.gold; if (!c.event) S.gpf = Math.floor((S.gpf * 29 + c.gold) / 30);
+    S.xp += c.xp;
+    while (S.lvl < MAXL && S.xp >= XPR[lv(S.lvl)]) levelUp(S, c.end);
+    if (c.drop) {
+      const it = { ...c.drop, id: "i" + S.nid++ }; addBag(S, it, c.end);
+      note(S, c.end, "loot", c.event ? "A wandering trader swaps " + S.hero.name + "'s odds and ends for " + it.n + "." : S.hero.name + " finds " + it.n + (c.elite ? " on the fallen champion" : "") + ".");
+    }
+    if (c.event) { S.t = c.end + TRAVEL2; return; }
+    if (c.win) {
+      S.wins++; S.kills += c.foes.length;
+      if (c.n === NODES - 1) {
+        if (!S.cleared[c.r]) {
+          S.cleared[c.r] = true;
+          S.maxRegion = Math.max(S.maxRegion, c.r + 1);
+          note(S, c.end, "boss", S.hero.name + " defeats " + regionDef(c.r).boss + " and moves on to " + regionName(c.r + 1) + ".");
+          S.region = c.r + 1;
+        }
+        S.node = 0; S.bossCd = 0; S.camp = null;
+      } else {
+        let next = c.n + 1;
+        if (next === NODES - 1 && (S.bossCd || 0) > c.end) next = 0;
+        if (S.camp && c.end < S.camp.until && next >= S.camp.n) next = Math.max(0, S.camp.n - 3);
+        S.node = next;
+      }
+    } else if (c.n === NODES - 1) {
+      S.bossCd = c.end + BOSS_CD; S.node = 0;
+      note(S, c.end, "loss", regionDef(c.r).boss + " is still too strong. " + S.hero.name + " trains and tries again later.");
+    } else {
+      S.camp = { n: c.n, until: c.end + CAMP_CD }; S.node = Math.max(0, c.n - 1);
+    }
+    S.t = c.end + TRAVEL2;
+  }
+
   function startFight(S) {
+    if (S.t >= V2) return startFight2(S);
     const ev = eventAt(S.t);
     const b = Math.floor(S.t / BLOCK);
     if (!S.shop || S.shop.b !== b) S.shop = shopFor(S);
@@ -723,6 +847,7 @@ const SIM = (() => {
     S.fights++;
   }
   function finishFight(S) {
+    if (S.cur.v2) return finishFight2(S);
     const c = S.cur; S.cur = null;
     S.gold += c.gold; S.gpf = Math.floor((S.gpf * 29 + c.gold) / 30);
     S.xp += c.xp;
@@ -865,6 +990,7 @@ const SIM = (() => {
   }
 
   return {
+    V2, TRAVEL2, EVENT_DUR, activeAllies, roundCost: S => Math.max(200, S.gpf * 60),
     HOLD, HOLD_MAX, HOLD_COST, holdLevel, ARENA_LVL, evenOut, duel, arenaDay,
     MIN, HOUR, DAY, WEEK, TRAVEL, REST, BLOCK, NODES, RAID_HOUR, RAID_LIMIT, XPR, MAXL,
     PATHS, LOOK, WEAPONS, ARMORS, RARITY, PERKS, MAJORS, REGIONS, EVENTS, STATNAME,
@@ -992,12 +1118,14 @@ let save = loadSave();
 function persist() { if (save) try { localStorage.setItem(LS, JSON.stringify(save)); } catch {} }
 let D = [], S = null, snaps = [], busy = false, running = false;
 
+// Checkpoints from the previous rules version are only trusted up to the moment the new rules began.
+const ckptOk = c => c && (c.v === 2 || (c.v === 1 && c.t <= X.V2));
 function bases() {
   let best = null;
-  for (const c of snaps.concat(save.ckpts || [])) if (c && c.v === 1 && X.decisionsHash(D, c.t) === c.h && (!best || c.t > best.t)) best = c;
+  for (const c of snaps.concat(save.ckpts || [])) if (ckptOk(c) && X.decisionsHash(D, c.t) === c.h && (!best || c.t > best.t)) best = c;
   return best;
 }
-function onSnap(st) { snaps.push({ v: 1, t: st.t, h: X.decisionsHash(D, st.t), s: JSON.stringify(st) }); if (snaps.length > 360) snaps.splice(0, snaps.length - 360); }
+function onSnap(st) { snaps.push({ v: 2, t: st.t, h: X.decisionsHash(D, st.t), s: JSON.stringify(st) }); if (snaps.length > 360) snaps.splice(0, snaps.length - 360); }
 async function rebuild() {
   D = X.sortDecisions(save.decisions);
   const b = bases();
@@ -1043,6 +1171,7 @@ function spendQueued() {
   for (const d of queued()) {
     if (d.k === "buy" && S.shop && S.shop.b === d.b) g += X.itemPrice(S.shop.items[d.i], X.mods(S));
     if (d.k === "donate") g += d.amt;
+    if (d.k === "buyround") g += d.cost;
   }
   return g;
 }
@@ -1051,7 +1180,10 @@ function makeCkpts() {
   const latest = snaps[snaps.length - 1];
   const older = age => { for (let i = snaps.length - 1; i >= 0; i--) if (snaps[i].t <= latest.t - age) return snaps[i]; return null; };
   const list = [latest, older(X.DAY), older(6 * X.DAY)].filter(Boolean);
-  for (const c of save.ckpts || []) if (list.length < 3 && !list.some(x => x.t === c.t) && X.decisionsHash(D, c.t) === c.h) list.push(c);
+  for (const c of save.ckpts || []) if (list.length < 4 && ckptOk(c) && !list.some(x => x.t === c.t) && X.decisionsHash(D, c.t) === c.h) list.push(c);
+  // keep one checkpoint from before the rules switch, so devices that update late still agree
+  const pre = (save.ckpts || []).concat(snaps).filter(c => ckptOk(c) && c.t <= X.V2 && X.decisionsHash(D, c.t) === c.h).sort((a, b) => b.t - a.t)[0];
+  if (pre && !list.some(x => x.t === pre.t) && Date.now() - X.V2 < 14 * X.DAY) list.push(pre);
   save.ckpts = list; persist();
 }
 
@@ -1224,6 +1356,8 @@ function drawMap(now) {
   const hp = heroPos(S, now);
   const g = c.createRadialGradient(hp.p[0], hp.p[1] - 12, 2, hp.p[0], hp.p[1] - 12, 34); g.addColorStop(0, "rgba(140,203,143,.55)"); g.addColorStop(1, "rgba(140,203,143,0)");
   c.fillStyle = g; c.beginPath(); c.arc(hp.p[0], hp.p[1] - 12, 34, 0, Math.PI * 2); c.fill();
+  const party = S.party && S.t < (S.party.d + 2) * X.DAY ? S.party.allies : [];
+  party.forEach((a, i) => drawHero(c, a.look, a.w, a.a, hp.p[0] - 12 - i * 9, hp.p[1] - 10 + (i % 2) * 8, 0.62, now + i * 250, {}));
   drawHero(c, S.hero.look, S.eq.w && S.eq.w.t, S.eq.a && S.eq.a.t, hp.p[0], hp.p[1] - 16, 0.85, now, {});
   if (hp.fighting) { c.font = "16px serif"; c.textAlign = "center"; c.fillStyle = "#F3ECF4"; c.globalAlpha = 0.6 + 0.4 * Math.sin(now / 200); c.fillText("⚔", hp.p[0] + 16, hp.p[1] - 38); c.globalAlpha = 1; }
   if (S.region >= 8) { c.font = "700 24px 'Grenze Gotisch', serif"; c.fillStyle = "#F0A64E"; c.textAlign = "center"; c.fillText(X.regionName(S.region), CENTERS[7][0], CENTERS[7][1] + 80); }
@@ -1236,11 +1370,12 @@ const SKY = [["#3A5677", "#93B3C7"], ["#1E3229", "#56785F"], ["#2A2730", "#6C667
 const GROUND = ["#6A8445", "#2F4B34", "#4A4740", "#6B6C6A", "#3D5D5A", "#C9AC70", "#E2E8EC", "#3B1D18"];
 let fightCache = null;
 function fightLog(cur) {
-  const ck = JSON.stringify(X.combat(S));
+  const allies = cur.v2 ? X.activeAllies(S) : [];
+  const ck = JSON.stringify(X.combat(S)) + allies.length;
   if (fightCache && fightCache.id === cur.id && fightCache.ck === ck) return fightCache;
-  const U = X.soloUnits(X.combat(S), cur.foes);
+  const U = X.soloUnits(X.combat(S), cur.foes, allies);
   const res = X.fight(U, cur.seed ^ 0x9e37, true, 100000);
-  fightCache = { id: cur.id, ck, ...res, units: U.map(u => ({ s: u.s, k: u.k, max: u.max })) };
+  fightCache = { id: cur.id, ck, ...res, units: U.map(u => ({ s: u.s, k: u.k, max: u.max, ei: u.ei })) };
   return fightCache;
 }
 function stage(c, w, h, reg) {
@@ -1295,29 +1430,55 @@ function drawBattle(now) {
   stage(c, w, h, reg);
   const s = Math.max(0.9, Math.min(1.5, h / 180)), look = S.hero.look, wt = S.eq.w && S.eq.w.t, at = S.eq.a && S.eq.a.t;
   c.shadowColor = "rgba(0,0,0,.6)"; c.shadowBlur = 4; c.textAlign = "left"; c.fillStyle = "#F7F0F8";
+  const party = S.party && S.t < (S.party.d + 2) * X.DAY ? S.party.allies : [];
+  const ALLYPOS = [[0.13, 0.52], [0.12, 0.8], [0.05, 0.64]];
+  if (cur && cur.event) {
+    const e = cur.event, cx = w * 0.55, cy = h * 0.7;
+    drawHero(c, look, wt, at, w * 0.3, h * 0.66, s, now, { still: true });
+    party.forEach((a, i) => drawHero(c, a.look, a.w, a.a, w * ALLYPOS[i][0] + w * 0.08, h * ALLYPOS[i][1], s * 0.92, now, {}));
+    if (e.k === "chest") { c.fillStyle = "#6B4A2E"; c.fillRect(cx - 22 * s, cy - 14 * s, 44 * s, 26 * s); c.strokeStyle = "#151116"; c.strokeRect(cx - 22 * s, cy - 14 * s, 44 * s, 26 * s); c.fillStyle = "#E3BC55"; for (let k = 0; k < 7; k++) { c.beginPath(); c.arc(cx + Math.sin(k * 2.1 + now / 300) * 16 * s, cy - 18 * s - (k % 3) * 5 * s - Math.abs(Math.sin(now / 250 + k)) * 6, 4 * s, 0, Math.PI * 2); c.fill(); } }
+    else if (e.k === "shrine") { c.fillStyle = "#8E959C"; c.fillRect(cx - 10 * s, cy - 40 * s, 20 * s, 52 * s); c.strokeStyle = "#151116"; c.strokeRect(cx - 10 * s, cy - 40 * s, 20 * s, 52 * s); const g = c.createRadialGradient(cx, cy - 30 * s, 2, cx, cy - 30 * s, 50 * s); g.addColorStop(0, "rgba(160,230,255," + (0.6 + 0.3 * Math.sin(now / 200)) + ")"); g.addColorStop(1, "rgba(160,230,255,0)"); c.fillStyle = g; c.beginPath(); c.arc(cx, cy - 30 * s, 50 * s, 0, Math.PI * 2); c.fill(); }
+    else { c.fillStyle = "#7A5233"; c.fillRect(cx - 30 * s, cy - 24 * s, 60 * s, 26 * s); c.fillStyle = "#C9B07A"; c.beginPath(); c.moveTo(cx - 32 * s, cy - 24 * s); c.quadraticCurveTo(cx, cy - 56 * s, cx + 32 * s, cy - 24 * s); c.fill(); c.fillStyle = "#3A2E2A"; for (const dx of [-18, 18]) { c.beginPath(); c.arc(cx + dx * s, cy + 4 * s, 8 * s, 0, Math.PI * 2); c.fill(); } drawHero(c, { skin: 2, hair: 4, hairc: 0, cloak: 4 }, "staff", "cloth", cx + 50 * s, cy - 4 * s, s, now, { flip: true }); }
+    c.fillStyle = "#F7F0F8"; c.font = "700 20px 'Grenze Gotisch', Georgia, serif"; c.textAlign = "left";
+    c.fillText(e.k === "chest" ? "A chest by the road · +" + fmt(e.gold) + " gold" : e.k === "shrine" ? "An old shrine · +" + fmt(e.xp) + " experience" : "A wandering trader · " + (e.item ? e.item.n : ""), 12, 26);
+    c.shadowBlur = 0; return;
+  }
   if (!cur) {
     const resting = S.t - now > X.TRAVEL;
-    drawHero(c, look, wt, at, w * 0.22 + (resting ? 0 : (now / 40) % 6), h * 0.66, s, now, {});
-    if (S.majors.includes("wolf")) drawWolf(c, w * 0.12, h * 0.74, s, now, false);
+    const step = resting ? 0 : (now / 40) % 6;
+    drawHero(c, look, wt, at, w * 0.22 + step, h * 0.66, s, now, {});
+    party.forEach((a, i) => drawHero(c, a.look, a.w, a.a, w * ALLYPOS[i][0] + step, h * ALLYPOS[i][1], s * 0.92, now + i * 300, {}));
+    if (S.majors.includes("wolf")) drawWolf(c, w * 0.3, h * 0.8, s, now, false);
     if (resting) { c.fillStyle = "#FFB05A"; c.beginPath(); c.arc(w * 0.36, h * 0.8, 6 + Math.sin(now / 120) * 2, 0, Math.PI * 2); c.fill(); c.fillStyle = "#F7F0F8"; }
     c.font = "700 20px 'Grenze Gotisch', Georgia, serif";
     c.fillText(resting ? "Resting by the fire · back on the road in " + dur(S.t - now) : "On the road · next encounter in " + dur(S.t - now), 12, 26);
     c.shadowBlur = 0; return;
   }
   const L = fightLog(cur), el = now - cur.start, boss = cur.n === X.NODES - 1;
-  const foePos = [[0.66, 0.6], [0.8, 0.78], [0.84, 0.48]];
-  const pos = i => { const u = L.units[i]; if (u.k === "hero") return [w * 0.24, h * 0.66]; if (u.k === "wolf") return [w * 0.13, h * 0.78]; const fi = i - (L.units[1].k === "wolf" ? 2 : 1); return boss && fi === 0 ? [w * 0.72, h * 0.6] : [w * foePos[fi % 3][0], h * foePos[fi % 3][1]]; };
+  const foePos = [[0.66, 0.6], [0.8, 0.78], [0.84, 0.46], [0.94, 0.62], [0.72, 0.84], [0.92, 0.84]];
+  const firstFoe = L.units.findIndex(u => u.s === 1);
+  const pos = i => {
+    const u = L.units[i];
+    if (u.k === "hero") return [w * 0.27, h * 0.66];
+    if (u.k === "wolf") return [w * 0.34, h * 0.84];
+    if (u.k === "ally") return [w * (ALLYPOS[u.ei][0] + 0.03), h * ALLYPOS[u.ei][1]];
+    const fi = i - firstFoe; return boss && fi === 0 ? [w * 0.74, h * 0.6] : [w * foePos[fi % 6][0], h * foePos[fi % 6][1]];
+  };
+  const fs = cur.foes.length > 3 ? 0.85 : 1;
   playLog(c, L, el, pos, (i, x, y, dead, sw) => {
     const u = L.units[i];
     if (u.k === "hero") drawHero(c, look, wt, at, x, y, s, now, { dead, swing: sw });
     else if (u.k === "wolf") drawWolf(c, x, y, s, now, dead);
-    else { const f = cur.foes[i - (L.units[1].k === "wolf" ? 2 : 1)]; drawFoe(c, f.k, reg, x, y, s * (f.k === "boss" ? 1.1 : 1), now, dead); }
+    else if (u.k === "ally") { const a = party[u.ei] || {}; drawHero(c, a.look, a.w, a.a, x, y, s * 0.92, now, { dead, swing: sw }); }
+    else { const f = cur.foes[i - firstFoe]; drawFoe(c, f.k, reg, x, y, s * (f.k === "boss" ? 1.1 : f.elite ? 1.25 : fs), now, dead); }
   }, s);
+  c.font = "600 11px Signika, sans-serif"; c.textAlign = "center";
+  L.units.forEach((u, i) => { if (u.k !== "ally" || !party[u.ei]) return; const [x, y] = pos(i); c.strokeStyle = "rgba(0,0,0,.7)"; c.lineWidth = 3; c.strokeText(party[u.ei].n, x, y - 34 * s); c.fillStyle = "#F7F0F8"; c.fillText(party[u.ei].n, x, y - 34 * s); });
   c.textAlign = "left"; c.fillStyle = "#F7F0F8"; c.font = "700 20px 'Grenze Gotisch', Georgia, serif";
-  c.fillText(boss ? "Boss: " + cur.foes[0].name : X.regionName(cur.r) + " · encounter " + (cur.n + 1) + " of " + X.NODES, 12, 26);
+  c.fillText(boss ? "Boss: " + cur.foes[0].name : cur.elite ? "Champion: " + cur.foes[0].name : X.regionName(cur.r) + " · encounter " + (cur.n + 1) + " of " + X.NODES, 12, 26);
   c.font = "14px Signika, sans-serif"; c.fillStyle = "rgba(247,240,248,.85)";
   c.fillText([...new Set(cur.foes.map(f => f.name))].join(", ") + " · level " + cur.foes[0].lvl, 12, 46);
-  if (now >= cur.end - 1500) { c.font = "700 28px 'Grenze Gotisch', Georgia, serif"; c.textAlign = "center"; c.fillStyle = cur.win ? "#FFE08A" : "#FF9A8F"; c.fillText(cur.win ? "Victory" : "Driven back", w / 2, h * 0.3); }
+  if (now >= cur.end - 1500) { c.font = "700 28px 'Grenze Gotisch', Georgia, serif"; c.textAlign = "center"; c.fillStyle = cur.win ? "#FFE08A" : "#FF9A8F"; c.fillText(cur.win ? "Victory" : "Falling back", w / 2, h * 0.3); }
   c.shadowBlur = 0;
 }
 
@@ -1354,13 +1515,14 @@ function better(it) {
   return X.power(c2) * c2.hp * c2.def > X.power(base) * base.hp * base.def * 1.03;
 }
 function queuedBlock() {
-  const q = queued().filter(d => d.k !== "raid" && d.k !== "arena" && d.k !== "hold"); if (!q.length) return "";
+  const q = queued().filter(d => !["raid", "arena", "hold", "party", "round"].includes(d.k)); if (!q.length) return "";
   const txt = d => {
     if (d.k === "buy") { const it = S.shop && S.shop.items[d.i]; return "Buy " + (it ? it.n : "an item"); }
     if (d.k === "equip") { const it = S.bag.find(x => x.id === d.id); return "Equip " + (it ? it.n : "an item"); }
     if (d.k === "sell") { const it = S.bag.find(x => x.id === d.id); return "Sell " + (it ? it.n : "an item"); }
     if (d.k === "pick") { const p = S.pend.find(p => p.l === d.l); if (!p) return "Learn a perk"; const id = p.opts[d.c]; return "Learn " + (p.major ? X.majorById(id).n : X.perkById(id).n); }
     if (d.k === "go") return "Travel to " + X.regionName(d.r);
+    if (d.k === "buyround") return "Buy a round at the tavern";
     if (d.k === "donate") return "Give " + fmt(d.amt) + " gold to the " + X.HOLD[d.b].n.toLowerCase();
     return d.k;
   };
@@ -1437,10 +1599,10 @@ function render(force) {
   const key = tab + "|" + S.fights + "|" + D.length + "|" + S.di + "|" + S.pend.length + "|" + (S.shop && S.shop.b) + "|" + Cloud.version() + "|" + Math.floor(Date.now() / 30000);
   if (force || key !== lastKey) {
     const fe = document.activeElement && document.activeElement.id;
-    if (fe === "gname" || fe === "gcode" || fe === "nick") return;
+    if (fe === "gname" || fe === "gcode" || fe === "nick" || fe === "chatin") return;
     lastKey = key;
     const pane = $("pane"), y = pane.scrollTop;
-    pane.innerHTML = { hero: paneHero, merchant: paneMerchant, raid: Cloud.raidHTML, arena: Cloud.arenaHTML, guild: Cloud.guildHTML, journal: paneJournal }[tab]();
+    pane.innerHTML = { hero: paneHero, merchant: paneMerchant, tavern: Cloud.tavernHTML, raid: Cloud.raidHTML, arena: Cloud.arenaHTML, guild: Cloud.guildHTML, journal: paneJournal }[tab]();
     pane.scrollTop = y;
     pane.querySelectorAll("canvas[data-look]").forEach(cv => { const d = JSON.parse(cv.dataset.look); miniPortrait(cv, d.look, d.w, d.a); });
     Cloud.mounted();
@@ -1456,6 +1618,7 @@ $("pane").addEventListener("click", e => {
   else Cloud.onClick(b);
 });
 $("foot").addEventListener("click", e => { const b = e.target.closest("button"); if (b) Cloud.onClick(b); });
+$("pane").addEventListener("keydown", e => { if (e.target.id === "chatin" && e.key === "Enter") { e.preventDefault(); const b = document.querySelector('[data-act="say"]'); if (b) Cloud.onClick(b); } });
 
 // =====================================================================
 // Cloud: Firebase sync, guild, raids
@@ -1464,6 +1627,7 @@ const Cloud = (() => {
   let fb = null, db = null, auth = null, user = null, configured = false, ver = 0;
   let remote = null, unsubUser = null, unsubMembers = null, unsubRoster = null;
   let members = [], guild = null, guildName = "", status = "", err = "", lastPublish = 0, lastEntry = 0, lastEntryKey = "", lastCkpt = 0;
+  let chat = [], rounds = [], unsubChat = null, unsubRounds = null, tavCv = null;
   let donations = [], donLoaded = false, unsubDon = null, arenaDays = {}, arenaWeek = [], duelState = null, duelCv = null, holdCv = null;
   let roster = [], entriesCache = {}, raidRes = null, raidLoading = false, replayDay = null, replay = null, replayStart = 0, replaySpeed = 1, raidCv = null, lastRaidCalc = 0;
   const bump = () => { ver++; };
@@ -1492,7 +1656,7 @@ const Cloud = (() => {
     if (!configured) { el.innerHTML = ""; return; }
     el.innerHTML = user ? (status ? esc(status) : "Signed in as " + esc(user.email || "") + ". Your hero will be saved to this account.") : `Already have a hero on another device? <button class="btn" data-act="signin">Sign in with Google</button>`;
   }
-  function stopSync() { [unsubUser, unsubMembers, unsubRoster, unsubDon].forEach(f => f && f()); unsubUser = unsubMembers = unsubRoster = unsubDon = null; remote = null; members = []; guild = null; status = ""; bump(); }
+  function stopSync() { [unsubUser, unsubMembers, unsubRoster, unsubDon, unsubChat, unsubRounds].forEach(f => f && f()); unsubUser = unsubMembers = unsubRoster = unsubDon = unsubChat = unsubRounds = null; remote = null; members = []; guild = null; status = ""; bump(); }
   const realmDoc = () => ({ seed: save.seed, created: save.created, hero: save.hero, decisions: save.decisions, ckpts: save.ckpts || [] });
 
   async function startSync() {
@@ -1518,7 +1682,7 @@ const Cloud = (() => {
       remote = s.data();
       if (remote.seed !== save.seed || remote.created !== save.created) return;
       await mergeDecisions(remote.decisions || []);
-      for (const c of remote.ckpts || []) if (!(save.ckpts || []).some(x => x.t === c.t) && X.decisionsHash(D, c.t) === c.h) { save.ckpts = (save.ckpts || []).concat([c]).slice(-4); persist(); }
+      for (const c of remote.ckpts || []) if (ckptOk(c) && !(save.ckpts || []).some(x => x.t === c.t) && X.decisionsHash(D, c.t) === c.h) { save.ckpts = (save.ckpts || []).concat([c]).slice(-5); persist(); }
       const theirs = new Set((remote.decisions || []).map(d => d.id));
       const missing = save.decisions.filter(d => !theirs.has(d.id));
       if (missing.length) pushDecisions(missing); else { status = "Saved to your Google account at " + clock(Date.now()); err = ""; }
@@ -1532,7 +1696,7 @@ const Cloud = (() => {
   function askRealm(r) {
     return new Promise(resolve => {
       let st = null;
-      try { const DD = X.sortDecisions(r.decisions || []); let base = null; for (const c of r.ckpts || []) if (X.decisionsHash(DD, c.t) === c.h && (!base || c.t > base.t)) base = c; st = base ? JSON.parse(base.s) : X.newState(r.seed, r.created, r.hero); X.advance(st, Date.now(), DD); } catch {}
+      try { const DD = X.sortDecisions(r.decisions || []); let base = null; for (const c of r.ckpts || []) if (ckptOk(c) && X.decisionsHash(DD, c.t) === c.h && (!base || c.t > base.t)) base = c; st = base ? JSON.parse(base.s) : X.newState(r.seed, r.created, r.hero); X.advance(st, Date.now(), DD); } catch {}
       const sum = s => s ? `${esc(s.hero.name)} · level ${s.lvl} · ${esc(X.regionName(s.region))}` : "Unknown";
       $("choicecard").innerHTML = `<h2>Two heroes found</h2><p>This browser has a different hero than your Google account. Pick the one to keep. The other one is replaced.</p>
         <div class="choices"><button class="btn" id="keepCloud"><b>Keep the account's hero</b><br>${sum(st)}</button><button class="btn" id="keepLocal"><b>Keep this browser's hero</b><br>${sum(S)}</button></div>`;
@@ -1552,12 +1716,25 @@ const Cloud = (() => {
   // ---------- guild ----------
   const gref = (...p) => fb.doc(db, P + "guilds", guild, ...p);
   function watchGuild(code) {
-    [unsubMembers, unsubRoster, unsubDon].forEach(f => f && f()); unsubMembers = unsubRoster = unsubDon = null;
+    [unsubMembers, unsubRoster, unsubDon, unsubChat, unsubRounds].forEach(f => f && f()); unsubMembers = unsubRoster = unsubDon = unsubChat = unsubRounds = null;
+    chat = []; rounds = [];
     members = []; roster = []; raidRes = null; replay = null; replayDay = null; guild = code; guildName = "";
     donations = []; donLoaded = false; arenaDays = {}; arenaWeek = []; duelState = null;
     if (!code) { bump(); return; }
     fb.getDoc(fb.doc(db, P + "guilds", code)).then(s => { guildName = s.exists() ? s.data().name : ""; bump(); render(true); }).catch(() => {});
     unsubMembers = fb.onSnapshot(fb.collection(db, P + "guilds", code, "members"), s => { members = s.docs.map(d => ({ uid: d.id, ...d.data() })); calcHold(); bump(); render(true); }, () => {});
+    const ms = v => v && v.toMillis ? v.toMillis() : typeof v === "number" ? v : null;
+    unsubChat = fb.onSnapshot(fb.query(fb.collection(db, P + "guilds", code, "chat"), fb.orderBy("at", "desc"), fb.limit(40)), s => {
+      chat = s.docs.map(x => { const v = x.data(); return { id: x.id, uid: v.uid, nick: v.nick, text: String(v.text || ""), at: ms(v.at) || Date.now() }; }).reverse();
+      bump(); if (tab === "tavern") render(true);
+    }, () => {});
+    unsubRounds = fb.onSnapshot(fb.query(fb.collection(db, P + "guilds", code, "rounds"), fb.where("day", ">=", Math.floor(Date.now() / X.DAY) - 2)), async s => {
+      rounds = s.docs.map(x => { const v = x.data(); return { id: x.id, uid: v.uid, nick: v.nick, day: v.day, at: ms(v.at) }; });
+      // a round lifts everyone's spirits: same id, time and text on every member's device
+      const add = rounds.filter(r => r.at).map(r => ({ id: "round_" + code + "_" + r.id, at: r.at, k: "round", by: r.nick || "A guildmate" })).filter(d => !save.decisions.some(x => x.id === d.id));
+      if (add.length) { await mergeDecisions(add); pushDecisions(add); }
+      bump(); render(true);
+    }, () => {});
     unsubDon = fb.onSnapshot(fb.collection(db, P + "guilds", code, "donations"), s => {
       donations = s.docs.map(x => { const v = x.data(); const at = v.at && v.at.toMillis ? v.at.toMillis() : typeof v.at === "number" ? v.at : null; return { id: x.id, uid: v.uid, nick: v.nick, b: v.b | 0, amt: Math.max(0, v.amt | 0), at }; });
       donLoaded = true; calcHold(); bump(); render(true);
@@ -1699,6 +1876,19 @@ const Cloud = (() => {
         const me = ar.score[user.uid];
         if (me && me.fought && !(S.arenas || []).includes(day.d)) claims.push({ id: "arena_" + guild + "_" + day.d, at: X.raidTime(day.d) + X.RAID_LIMIT + 90000, k: "arena", d: day.d, won: me.won, fought: me.fought });
       }
+      // fellowship: after each raid, up to three guildmates closest in level travel with you until the next one
+      const lastDay = pdays.concat(days).filter(x => x.entries.length > 1).pop();
+      if (lastDay) {
+        const mine = lastDay.entries.find(e => e.uid === user.uid);
+        if (mine) {
+          const keep = ["hp", "atk", "def", "cd", "crit", "critd", "dodge", "block", "blockr", "ls", "thorns", "tcrit", "regen", "cleave", "aoe", "pierce", "stun", "volley", "whirl", "phoenix", "exe", "bers", "storm", "second", "boss", "norm"];
+          const allies = lastDay.entries.filter(e => e.uid !== user.uid)
+            .sort((a, b) => Math.abs(a.b.lvl - mine.b.lvl) - Math.abs(b.b.lvl - mine.b.lvl) || (a.uid < b.uid ? -1 : 1)).slice(0, 3)
+            .map(e => { const c = {}; for (const k of keep) c[k] = e.b.c[k] || 0; return { u: e.uid, n: e.b.name, look: e.b.look, w: e.b.w, a: e.b.a, lvl: e.b.lvl, c }; });
+          const id = "party_" + guild + "_" + lastDay.d;
+          if (!save.decisions.some(x => x.id === id)) claims.push({ id, at: X.raidTime(lastDay.d) + X.RAID_LIMIT + 30000, k: "party", d: lastDay.d, allies });
+        }
+      }
       // collect spoils: same id and fields on every device, so the cloud stores it once
       [[res, days], [pres, pdays]].forEach(([rs, ds]) => rs.days.forEach((r, i) => {
         if (r.skipped || r.empty) return;
@@ -1739,7 +1929,88 @@ const Cloud = (() => {
     html += signed.length ? `<ul class="members">${signed.map(e => `<li><canvas data-look='${esc(JSON.stringify({ look: e.b.look, w: e.b.w, a: e.b.a }))}'></canvas><span><b>${esc(e.b.name)}</b>${e.uid === user.uid ? " (you)" : ""}<br><span class="md">Level ${e.b.lvl} · ${esc(X.WEAPONS[e.b.w] ? X.WEAPONS[e.b.w].name : e.b.w)} · strength ${fmt(X.power(e.b.c))}</span></span></li>`).join("")}</ul>` : `<p class="hint">Nobody has signed up yet.</p>`;
     return html;
   }
-  function mounted() { raidCv = $("raidcv"); duelCv = $("duelcv"); holdCv = $("holdcv"); if (holdCv) drawHold(); }
+  function mounted() { raidCv = $("raidcv"); duelCv = $("duelcv"); holdCv = $("holdcv"); tavCv = $("tavcv"); if (holdCv) drawHold(); const cl = $("chatlog"); if (cl) cl.scrollTop = cl.scrollHeight; }
+
+  // ---------- tavern ----------
+  function tavernHTML() {
+    if (!configured) return `<h2>The tavern</h2><p>The tavern needs online play. The README explains how to connect Firebase.</p>`;
+    if (!user) return `<h2>The tavern</h2><p>Sign in and join a guild to meet your friends here.</p><button class="btn go" data-act="signin">Sign in with Google</button>`;
+    if (!guild) return `<h2>The tavern</h2><p>Join or start a guild in the Guild tab. Your guildmates gather here, and their heroes travel with yours.</p>`;
+    const now = Date.now(), day = Math.floor(now / X.DAY);
+    const party = S.party && S.t < (S.party.d + 2) * X.DAY ? S.party.allies : [];
+    const cost = X.roundCost(S), boughtToday = rounds.some(r => r.uid === user.uid && r.day === day) || queued().some(d => d.k === "buyround");
+    let html = `<h2>The Sleeping Wyrm</h2><canvas id="tavcv" aria-label="The tavern"></canvas>`;
+    html += `<h3>Your fellowship</h3>`;
+    html += party.length ? `<div class="fellow">${party.map(a => `<div><canvas data-look='${esc(JSON.stringify({ look: a.look, w: a.w, a: a.a }))}'></canvas>${esc(a.n)}</div>`).join("")}</div><p class="hint">They travel and fight beside ${esc(S.hero.name)} at your level until after the next raid. Your hero travels with them too.</p>`
+      : `<p class="hint">After each evening's raid, up to three guildmates closest to your level join ${esc(S.hero.name)} on the road until the next raid. Companions make every fight a group fight, and you advance faster together.</p>`;
+    html += `<h3>A round for everyone</h3><p class="hint">Once a day, buy the whole guild a round: everyone's heroes get 15% more experience and gold for two hours.${S.cheer > S.t ? ` A round is flowing now, ${dur(S.cheer - now)} left.` : ""}</p>
+      <button class="btn go" data-act="buyround" ${boughtToday || S.gold - spendQueued() < cost ? "disabled" : ""}>${boughtToday ? "You bought today's round" : "Buy a round for " + fmt(cost) + " gold"}</button>`;
+    html += `<h3>Table talk</h3><ul class="chat" id="chatlog">${chat.length ? chat.map(m => `<li class="${m.uid === user.uid ? "me" : ""}"><b>${esc(m.nick || "Someone")}</b><time>${dayclock(m.at)}</time><br>${esc(m.text)}</li>`).join("") : `<li class="sys">Nobody has said anything yet.</li>`}</ul>
+      <div class="field"><input id="chatin" maxlength="200" placeholder="Say something to the guild" autocomplete="off"><button class="btn go" data-act="say">Send</button></div>${err ? `<p class="err">${esc(err)}</p>` : ""}`;
+    return html;
+  }
+  async function say() {
+    const el = $("chatin"); if (!el) return;
+    const text = el.value.trim().slice(0, 200);
+    if (!text) return;
+    const me = members.find(m => m.uid === user.uid);
+    el.value = "";
+    await fb.addDoc(fb.collection(db, P + "guilds", guild, "chat"), { uid: user.uid, nick: (me && me.nick) || firstName(), text, at: fb.serverTimestamp() });
+  }
+  async function buyRound() {
+    const day = Math.floor(Date.now() / X.DAY), cost = X.roundCost(S), me = members.find(m => m.uid === user.uid);
+    if (S.gold - spendQueued() < cost) throw new Error("Not enough gold for a round.");
+    await fb.setDoc(fb.doc(db, P + "guilds", guild, "rounds", user.uid + "_" + day), { uid: user.uid, nick: (me && me.nick) || firstName(), day, at: fb.serverTimestamp() });
+    decide({ k: "buyround", cost });
+  }
+  function drawTavern(now) {
+    const cv = tavCv; if (tab !== "tavern" || !cv || !cv.isConnected) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1), w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const c = cv.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.fillStyle = "#4A3020"; c.fillRect(0, 0, w, h);
+    c.strokeStyle = "rgba(0,0,0,.25)"; c.lineWidth = 1; for (let x = 0; x < w; x += 26) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h * 0.62); c.stroke(); }
+    c.fillStyle = "#5E3E26"; c.fillRect(0, h * 0.62, w, h * 0.38);
+    c.fillStyle = "#3A2416"; c.fillRect(0, h * 0.6, w, 6);
+    const fx = w * 0.1, fy = h * 0.6;
+    c.fillStyle = "#7B746C"; c.fillRect(fx - 34, fy - 70, 68, 70); c.fillStyle = "#1C120C"; c.fillRect(fx - 22, fy - 44, 44, 44);
+    for (let k = 0; k < 5; k++) { const fl = Math.sin(now / 90 + k * 1.7) * 4; c.fillStyle = ["#FF9A3A", "#FFC85A", "#FF6A2A"][k % 3]; c.beginPath(); c.moveTo(fx - 16 + k * 8, fy); c.quadraticCurveTo(fx - 18 + k * 8 + fl, fy - 22 - (k % 2) * 8, fx - 12 + k * 8, fy - 34 + fl); c.quadraticCurveTo(fx - 8 + k * 8, fy - 16, fx - 8 + k * 8, fy); c.fill(); }
+    const glow = c.createRadialGradient(fx, fy - 20, 5, fx, fy - 20, w * 0.5); glow.addColorStop(0, "rgba(255,170,80,.22)"); glow.addColorStop(1, "rgba(255,170,80,0)"); c.fillStyle = glow; c.fillRect(0, 0, w, h);
+    const bx = w * 0.88;
+    c.fillStyle = "#3A2416"; for (let k = 0; k < 4; k++) { c.beginPath(); c.ellipse(bx - 36 + k * 24, h * 0.2, 9, 12, 0, 0, Math.PI * 2); c.fill(); }
+    drawHero(c, { skin: 3, hair: 2, hairc: 0, cloak: 5 }, null, "cloth", bx, h * 0.47, 0.95, now, { flip: true, still: true });
+    c.fillStyle = "#2E1C10"; c.fillRect(bx - 56, h * 0.5, 112, 12); c.fillStyle = "#6B4A2E"; c.fillRect(bx - 52, h * 0.5 + 12, 104, h * 0.24);
+    const ppl = members.slice().sort((a, b) => a.uid < b.uid ? -1 : 1).slice(0, 12);
+    const tables = [[0.33, 0.8], [0.6, 0.82], [0.47, 0.6]];
+    // person i sits at table i % 3, so friends spread out before tables fill up
+    const SEAT = [[-0.08, -0.03], [0.08, -0.03], [-0.035, -0.13], [0.04, -0.13]];
+    const seats = ppl.map((m, i) => { const tb = tables[i % 3], st = SEAT[Math.floor(i / 3) % 4]; return [tb[0] + st[0], tb[1] + st[1], Math.floor(i / 3) >= 2, i % 3]; });
+    const s = Math.max(0.7, Math.min(1.05, h / 250));
+    const cheerR = rounds.filter(r => r.at && now - r.at < 2 * X.HOUR).sort((a, b) => b.at - a.at)[0];
+    const latest = {}; for (const m of chat) if (now - m.at < 15 * X.MIN) latest[m.uid] = m;
+    const person = (m, i, sc) => { const [sx, sy, , tb] = seats[i]; drawHero(c, m.look || {}, m.w || "sword", m.a || "mail", w * sx, h * sy, sc, now + i * 400, { flip: sx > tables[tb][0] }); };
+    ppl.forEach((m, i) => { if (seats[i][2]) person(m, i, s * 0.9); });
+    tables.forEach(([tx, ty]) => {
+      c.fillStyle = "#3A2416"; c.beginPath(); c.ellipse(w * tx, h * ty + 4, 50 * s, 13 * s, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = "#7A5233"; c.beginPath(); c.ellipse(w * tx, h * ty, 48 * s, 12 * s, 0, 0, Math.PI * 2); c.fill();
+      if (cheerR) for (let k = -1; k <= 1; k++) { c.fillStyle = "#C9A04A"; c.fillRect(w * tx + k * 18 * s - 4, h * ty - 12, 8, 10); c.fillStyle = "#F4F1E4"; c.fillRect(w * tx + k * 18 * s - 4, h * ty - 14, 8, 3); }
+    });
+    ppl.forEach((m, i) => { if (!seats[i][2]) person(m, i, s); });
+    c.textAlign = "center";
+    ppl.forEach((m, i) => {
+      const [sx, sy] = seats[i], x = w * sx, y = h * sy - 34 * s;
+      c.font = "600 11px Signika, sans-serif"; c.strokeStyle = "rgba(0,0,0,.75)"; c.lineWidth = 3; c.strokeText(m.nick || "", x, y); c.fillStyle = "#F7F0F8"; c.fillText(m.nick || "", x, y);
+      const msg = latest[m.uid];
+      if (msg) {
+        const txt = msg.text.length > 30 ? msg.text.slice(0, 29) + "…" : msg.text;
+        c.font = "13px Signika, sans-serif"; const tw = Math.min(w * 0.45, c.measureText(txt).width + 14), bx2 = Math.max(tw / 2 + 2, Math.min(w - tw / 2 - 2, x)), by = y - 24 - (i % 2) * 22;
+        c.fillStyle = "#F7F0F8"; c.beginPath(); if (c.roundRect) c.roundRect(bx2 - tw / 2, by - 13, tw, 22, 8); else c.rect(bx2 - tw / 2, by - 13, tw, 22); c.fill();
+        c.beginPath(); c.moveTo(x - 5, by + 9); c.lineTo(x, by + 15); c.lineTo(x + 5, by + 9); c.fill();
+        c.fillStyle = "#2A2030"; c.fillText(txt, bx2, by + 3, tw - 8);
+      }
+    });
+    if (cheerR) { c.font = "700 18px 'Grenze Gotisch', serif"; c.fillStyle = "#FFE08A"; c.textAlign = "left"; c.fillText("This round is on " + (cheerR.nick || "a friend") + "!", 12, 22); }
+  }
 
   // ---------- arena ----------
   const nameOf = uid => { for (const d of Object.values(arenaDays)) { const e = d.entries.find(x => x.uid === uid); if (e) return e.b.name; } const m = members.find(x => x.uid === uid); return m ? m.name || m.nick : "Someone"; };
@@ -1912,6 +2183,8 @@ const Cloud = (() => {
       else if (act === "create") { const n = $("gname").value.trim(); if (!n) throw new Error("Give the guild a name first."); await createGuild(n, ($("nick").value.trim() || firstName()).slice(0, 20)); }
       else if (act === "join") { const c = $("gcode").value.trim(); if (!c) throw new Error("Paste the code a friend sent you."); await joinGuild(c, ($("nick").value.trim() || firstName()).slice(0, 20)); }
       else if (act === "donate") await donate(+b.dataset.b, +b.dataset.pct);
+      else if (act === "say") await say();
+      else if (act === "buyround") await buyRound();
       else if (act === "leave") { if (confirm("Leave the guild? You can join again with the code.")) await leaveGuild(); }
     } catch (e) { err = e.message && !e.code ? e.message : "That didn't work (" + (e.code || e.message) + ")."; }
     bump(); render(true);
@@ -1923,7 +2196,7 @@ const Cloud = (() => {
     if (guild && Date.now() - lastRaidCalc > 5 * X.MIN) { calcRaids(); calcHold(); }
     if (Date.now() - lastCkpt > 15 * X.MIN) { lastCkpt = Date.now(); makeCkpts(); pushCkpts(); }
   }
-  return { init, pushDecisions, guildHTML, raidHTML, arenaHTML, mounted, drawRaid: now => { drawRaid(now); drawDuel(now); }, footHTML, onClick, tick, creatorHint, heroCreated, version: () => ver,
+  return { init, pushDecisions, guildHTML, raidHTML, arenaHTML, mounted, drawRaid: now => { drawRaid(now); drawDuel(now); drawTavern(Date.now()); }, tavernHTML, footHTML, onClick, tick, creatorHint, heroCreated, version: () => ver,
     mates: () => user ? members.filter(m => m.uid !== user.uid) : [] };
 })();
 
